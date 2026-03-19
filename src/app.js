@@ -1,15 +1,21 @@
 import express from 'express'
 import cors from 'cors'
 import healthCheckRouter from './routes/healthcheck.routes.js'
+import authRouter from './routes/auth.routes.js'
+import cookieParser from  'cookie-parser'
 
 const app= express();
 
 app.use(express.json({limit:"16kb"}))
 app.use(express.urlencoded({extended:true,limit:"16kb"}))
 app.use(express.static("public"))
+app.use(cookieParser())
 
 //  using routes
 app.use("/api/v1/healthcheck",healthCheckRouter)
+
+app.use("/api/v1/auth",authRouter)
+
 
 //  cors configuration
 app.use(cors({
@@ -19,7 +25,10 @@ app.use(cors({
     allowedHeaders:["Authorization","Content-Type"]
 }))
 
+
 app.get("/",(req,res)=>{
     res.send("working hai ")
 })
+
+
 export default app;

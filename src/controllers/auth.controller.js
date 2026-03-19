@@ -15,8 +15,9 @@ const generateAccessAndRefreshTokens=async (userId)=>{
     user.refreshToken =refreshToken;
     await user.save({validateBeforeSave:false});
     return { accessToken,refreshToken}
-  } catch (error) {
-      throw new ApiError(500,"something went wrong while accessToken")
+  } 
+  catch (error) {
+      throw new ApiError(400,"something went wrong while accessToken")
   } 
 }
 
@@ -25,27 +26,27 @@ const generateAccessAndRefreshTokens=async (userId)=>{
 
 const registerUser= asyncHandler(async(req,res)=>{
          const {email,username,password , role} = req.body;
-        const existedUser= User.findOne({
+        const existedUser= await User.findOne({
                 $or: [{username},{email}]
             })
          
             if(existedUser){
-                throw new ApiError(409,"User with email or username already exist",[])
+                throw new ApiError(409,"User with email or username already exist",[ ])
             }
 
-        const user= User.create({
+        const user= await  User.create({
                 email,
                 username,
                 password,
                 isEmailVerfied:false
             })
 
-         const {hashedToken,unhashedToken ,tokenExpiry} = user.generateTemporaryToken; 
+         const {hashedToken,unhashedToken ,tokenExpiry} = user.generateTemporaryToken(); 
          
          user.emailVerificationToken = hashedToken;
-         user.emailVerificationExpiry= unhashedToken;
+         user.emailVerificationExpiry= tokenExpiry;
 
-        await user.save({validationBeforeSave:false})
+        await user.save({validateBeforeSave:false})
 
             //    want to pass option in sendEmail function
         await sendEmail({
@@ -53,7 +54,81 @@ const registerUser= asyncHandler(async(req,res)=>{
               subject:" please verify your email",
               mailgenContent:emailVerificationMailgen(
                 user.username,
-                `${req.protocol}://${req.get("host")/api/v1/users/verify-email/${unhashedToken} }`
-              )
+                // `${req.protocol}://${req.get("host")/api/v1/users/verify-email/${unhashedToken} }`
+             `${req.protocol}://${req.get("host")}/api/v1/users/verify-email/${unhashedToken}`
+            )
         });
+
+       const createdUser= await User.findById(user._id).select(
+            "-password -refreshToken -emailVerificationToken -emailVerificationExpiry"
+        )
+              
+        if(!createdUser){
+            throw new ApiError(401,"something went wrong while registering user")
+        }
+
+        return res
+                .status(201)
+                .json(
+                    new ApiResponse(
+                        200,
+                        createdUser,
+                        "User registered successfully and verification email has been sent to email"
+                    )
+                )
 })
+
+const login=asyncHandler(async(req,res)=>{
+     const {email,password,username} = req.body;
+     
+     if(!email){
+        throw new ApiError(401," Email is required")
+     }
+
+   const user= await User.findOne({email})
+   if(!user){
+    throw new ApiError(400,"user nor found")
+   }
+
+   const isPasswordCorrect= await user.isPasswordCorrect(password);
+   
+   if(!isPasswordCorrect){
+       throw new ApiError (400,"Password is incorrect")
+   }
+
+  const {accessToken,refreshToken} = await generateAccessAndRefreshTokens(user._id);
+       
+  
+       const loggedInUser= await User.findById(user._id).select(
+            "-password -refreshToken -emailVerificationToken -emailVerificationExpiry"
+        )
+
+        const options={
+            httpOnly:true,
+            secure:true
+        }
+     
+        return res
+          .status(200)
+          .cookie("access-token",accessToken,options)
+          .cookie("refresh-token",refreshToken,options)
+           .json(
+            new ApiResponse(
+                200,
+                {
+                    user:loggedInUser,
+                    accessToken,
+                    refreshToken
+                },
+                "user logged in successfully"
+            )
+           )
+
+})
+
+
+export {
+    registerUser,
+    login 
+}
+
