@@ -4,6 +4,8 @@ import {asyncHandler} from "../utils/async-handler.js"
 import  {ApiError}   from '../utils/api-error.js'
 import { error } from 'node:console'
 import   {emailVerificationMailgen, sendEmail} from "../utils/mail.js"
+import jwt from 'jsonwebtoken'
+
 
 
 const generateAccessAndRefreshTokens=async (userId)=>{
@@ -185,16 +187,154 @@ const verifyEmail=asyncHandler(async(req,res)=>{
                         .digest("hex")
 
 
-                 await User.findOne({
+           const user= await User.findOne({
                     emailVerificationToken:hashedToken,
                     emailVerificationExpiry:{$gt: Date.now()}
                  })       
+
+    if(!user){
+        throw new ApiError(
+            400,
+            "Token is invalid"
+        )
+    }
+      user.emailVerificationToken=undefined;
+      user.emailVerificationExpiry=undefined;
+
+      user.isEmailVerfied= true;
+    await user.save({validateBeforeSave:false})
+
+    return res   
+              .status(200)
+              .json(
+                new ApiResponse(
+                    200,
+                    {
+                        isEmailVerfied:true
+                    },
+                    "Email is Verified "
+                )
+              )
 })
+
+const resendEmailVerification=asyncHandler(async(req,res)=>{
+      const user=  await User.findById(req.user?._id);
+      if(!user){
+        throw new ApiError(
+            404,
+            "user does not exists"
+        )
+      }
+
+      if(user.isEmailVerified){
+        throw new ApiError(
+            409,
+            "email is already verified"
+        )
+      }
+
+        const {hashedToken,unhashedToken ,tokenExpiry} = user.generateTemporaryToken(); 
+         
+         user.emailVerificationToken = hashedToken;
+         user.emailVerificationExpiry= tokenExpiry;
+
+        await user.save({validateBeforeSave:false})
+
+            //    want to pass option in sendEmail function
+        await sendEmail({
+              email:user?.email,
+              subject:" please verify your email",
+              mailgenContent:emailVerificationMailgen(
+                user.username,
+                // `${req.protocol}://${req.get("host")/api/v1/users/verify-email/${unhashedToken} }`
+             `${req.protocol}://${req.get("host")}/api/v1/users/verify-email/${unhashedToken}`
+            )
+        });
+
+         return res
+                 .status(200)
+                 .jsoon(
+                    new ApiResponse(
+                        200,
+                        "mail has been sent to email-id"
+                    )
+                 )
+
+
+})
+
+
+const refreshAccessToken=asyncHandler(async(req,res)=>{
+   const incomingRefreshToken = req.cookies.refreshToken ||  req.body.refreshToken ;
+
+    if(!incomingRefreshToken){
+        throw new ApiError(
+            401,
+            "unauthorized access"
+        )
+    }
+    try {
+      const decodedToken= jwt.verify(incomingRefreshToken,process.env.REFRESH_TOKEN_SECRET)
+        
+     const user = await User.findById(decodedToken?._id);
+
+       if(!user){
+        throw new ApiError(
+            401,
+            "Invalid Refresh Token"
+        )
+    }
+
+    if(incomingRefreshToken!== user?.refreshToken){
+        throw new ApiError(
+            401,
+            "Refresh Token is expired"
+        )
+    }
+     
+    const options={
+        httpOnly:true,
+        secure:true 
+       }
+
+    const {accessToken ,newrefreshToken}= await generateAccessAndRefreshTokens(user._id)
+     
+    user.refreshToken= newrefreshToken;
+
+    await user.save()
+
+    return res
+         .status(200)
+         .cookie("accessToken",accessToken,options)
+         .cookie("newRefreshToken",newRefreshToken,options)
+         .json(
+            new ApiResponse(
+                200,
+                {accessToken,refreshToken:newRefreshToken},
+                "Access token refreshed"
+            )
+         )
+
+
+
+    } catch (error) {
+        throw new ApiError(401,"Invalid Refresh Token")
+        
+    }
+})
+
+const forgotPassword= asyncHandler(async(req,res)=>{
+    
+})
+
 
 export {
     registerUser,
     login ,
     logoutUser,
-    getCurrentUser
+    getCurrentUser,
+    verifyEmail,
+    resendEmailVerification,
+    refreshAccessToken
 }
 
