@@ -2,7 +2,6 @@ import {User}  from '../models/user.model.js'
 import {ApiResponse} from '../utils/api-response.js'
 import {asyncHandler} from "../utils/async-handler.js"
 import  {ApiError}   from '../utils/api-error.js'
-import { error } from 'node:console'
 import   {emailVerificationMailgen, forgotPasswordMailgen, sendEmail} from "../utils/mail.js"
 import jwt from 'jsonwebtoken'
 
